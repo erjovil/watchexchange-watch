@@ -1,0 +1,26 @@
+{
+  "_comment": [
+    "EXAMPLE ONLY — this file is public. Your real list lives in the TARGETS_JSON",
+    "repository secret, which is encrypted and never readable from the repo, so",
+    "nothing public reveals what you are actually hunting. See README.",
+    "",
+    "  watch_listings_after — OPTIONAL ISO8601 UTC cutoff, and normally omitted.",
+    "                         Listings flaired Sold are already filtered out, so",
+    "                         age is not usually the thing you care about — set",
+    "                         this only if you also want a hard date floor.",
+    "  refs                 — reference numbers. Matched loosely: spaces, dots and",
+    "                         hyphens are ignored, so 'XY 7788' / 'xy-7788' /",
+    "                         'xy7788' all hit, and a longer ref that starts with",
+    "                         yours also hits (XY7788G matches XY7788).",
+    "  aliases              — nicknames sellers use INSTEAD of the reference. Keep",
+    "                         these specific: a model nickname is safe, a bare",
+    "                         brand name would alert on everything that brand lists."
+  ],
+  "targets": [
+    {
+      "name": "Example — replace this via the TARGETS_JSON secret",
+      "refs": ["REF12345"],
+      "aliases": []
+    }
+  ]
+}
