@@ -60,8 +60,11 @@ jobs:
 
   watch:
     runs-on: ubuntu-latest
-    # Each run watches for ~5.5h so a run is essentially always active and
-    # coverage never depends on GitHub's scheduler actually firing.
+    # Each run watches for 5h (MAX_MINUTES) and then exits on its own, so a run
+    # is essentially always active and coverage never depends on GitHub's
+    # scheduler firing. The timeout is a backstop with 50 minutes of headroom —
+    # it must never be what ends a run, because a timeout kills the steps that
+    # report failures.
     timeout-minutes: 350
     concurrency:
       # Queue rather than cancel: an overlapping run is coverage, not waste.
@@ -81,8 +84,9 @@ jobs:
           TARGETS_JSON: ${{ secrets.TARGETS_JSON }}
           ALERT_REPO: ${{ secrets.ALERT_REPO }}
           ALERT_TOKEN: ${{ secrets.ALERT_TOKEN }}
-          PASSES: "330"         # 330 sweeps...
-          GAP_SECONDS: "60"     # ...one a minute = ~5.5h of continuous cover
+          MAX_MINUTES: "300"    # exit cleanly at 5h, well inside the job timeout
+          PASSES: "400"         # upper bound only; MAX_MINUTES ends the loop
+          GAP_SECONDS: "60"     # a sweep a minute
           SEARCH_EVERY: "5"     # the search index lags; every 5th pass is enough
         run: |
           set +e

@@ -52,6 +52,11 @@ POST_PAGE = "https://old.reddit.com/comments/%s/"
 # [WTB] is someone hunting the same watch you are, not a watch for sale.
 SKIP_TAGS = ("WTB",)
 
+# Consecutive passes where every fetch failed before we call ourselves blind.
+# With a 60s gap that is ten minutes of total failure — long enough to ride
+# out a transient 429, short enough that you learn about a block quickly.
+BLIND_AFTER = 10
+
 
 # Actions logs on a public repo are public. Anything naming a watch, a listing
 # or a seller is therefore treated as private and withheld unless QUIET=0.
@@ -655,22 +660,57 @@ def main():
         log("Alerts are never written to this repo, so nothing about your list "
             "can leak into a public repo.")
 
+    # A wall-clock budget, not a pass count. Pass duration varies with fetch
+    # time and 429 backoff, so counting passes overshot the runner's job timeout
+    # every single time — the job was killed mid-loop and every step after it,
+    # including the checks that tell you the watcher has failed, never ran.
+    max_minutes = float(os.environ.get("MAX_MINUTES", "0"))
+    deadline = time.time() + max_minutes * 60 if max_minutes else None
+    if deadline:
+        log("watching for up to %g minutes, then exiting cleanly for the next run"
+            % max_minutes)
+
     total_ok = total_alerts = 0
+    blind_streak = 0
+    reported_blind = False
     for i in range(passes):
         alerts, ok, scanned = one_pass(cfg, alerter, do_search=(i % search_every == 0))
         total_ok += ok
         total_alerts += alerts
         log("pass %d/%d — %d scanned, %d feed(s) ok, %d alert(s)"
             % (i + 1, passes, scanned, ok, alerts))
+
+        # Report blindness DURING the run, not after it. A run lasts hours; a
+        # watcher that has been failing every fetch for ten minutes is already
+        # not protecting you, and waiting until the end to say so is useless.
+        if ok:
+            blind_streak = 0
+            if reported_blind:
+                alerter.clear_blind()
+                reported_blind = False
+        else:
+            blind_streak += 1
+            if blind_streak == BLIND_AFTER and not reported_blind:
+                log("ERROR: %d passes in a row with every fetch failing — reporting."
+                    % blind_streak)
+                alerter.report_blind()
+                reported_blind = True
+
+        if deadline and time.time() >= deadline:
+            log("time budget reached after %d pass(es) — handing over to the next run."
+                % (i + 1))
+            break
         if i < passes - 1:
             time.sleep(gap)
 
     if total_ok == 0:
         log("ERROR: every fetch failed across all %d pass(es) — the watcher is blind." % passes)
-        alerter.report_blind()
+        if not reported_blind:
+            alerter.report_blind()
         return 1
 
-    alerter.clear_blind()
+    if not reported_blind:
+        alerter.clear_blind()
     if alerter.failures:
         log("ERROR: %d listing(s) matched but the alert could not be delivered."
             % alerter.failures)
