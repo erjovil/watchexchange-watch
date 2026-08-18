@@ -97,6 +97,15 @@ jobs:
       # The script alerts on its own the instant a listing appears — it does not
       # wait for the job to end, because a good listing is gone in minutes. The
       # only things left to surface are the two ways it can fail you.
+      # Exit 2 = no alert destination configured, so a match could not have
+      # reached you. Loud on purpose: this is the state that looks healthiest
+      # and protects you least.
+      - name: Fail the run if alerts cannot be delivered at all
+        if: steps.watch.outputs.code == '2'
+        run: |
+          echo "::error::Not configured: set the ALERT_TOKEN, ALERT_REPO and TARGETS_JSON secrets. Nothing is being watched until you do."
+          exit 1
+
       - name: Fail the run if the watcher went blind
         if: steps.watch.outputs.code == '1'
         run: |

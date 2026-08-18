@@ -17,8 +17,12 @@ Environment:
 Exit codes:
     0  ran fine
     1  every fetch failed — the watcher is blind, and says so loudly
+    2  no alert destination configured, so nothing could ever reach you
     3  found a listing but could not deliver the alert (the worst failure:
        something was there and you were not told, so the run goes red)
+
+    Anything non-zero fails the workflow on purpose. A watcher that cannot
+    reach you must never look healthy.
 """
 
 import html as html_mod
@@ -500,15 +504,19 @@ class Alerter(object):
     def hello(self, cfg):
         """Say hello once, so setup is confirmed without a real listing."""
         if not self.enabled:
-            # A brand-new repo has no secrets yet, because they can only be added
-            # after it exists. That is an expected step, not a fault — do not
-            # redden the run and email an alarm about it.
-            if not (os.environ.get("ALERT_REPO") or os.environ.get("ALERT_TOKEN")):
-                log("Not configured yet: no ALERT_REPO / ALERT_TOKEN secrets.")
-                log("Add the three secrets, then re-run this workflow to get the")
-                log("confirmation email. Nothing is being watched until then.")
-                return 0
-            log("ALERT_REPO and ALERT_TOKEN must BOTH be set — one is missing.")
+            # This used to exit 0 on the theory that a just-published repo has
+            # no secrets yet. That was wrong: it made "never configured" and
+            # "working fine" look identical, and the watcher sat green for six
+            # days while three listings came and went. Silence must be loud.
+            missing = [n for n in ("ALERT_REPO", "ALERT_TOKEN") if not os.environ.get(n)]
+            log("NOT CONFIGURED: missing secret(s) %s." % ", ".join(missing))
+            log("Until these are set nothing can reach you, so this run fails on")
+            log("purpose — a green run here would mean 'watching' when it is not.")
+            log("")
+            log("Settings -> Secrets and variables -> Actions:")
+            log("  ALERT_TOKEN   fine-grained PAT, Issues: Read and write")
+            log("  ALERT_REPO    your-username/your-private-alerts-repo")
+            log("  TARGETS_JSON  the contents of targets.local.json")
             return 2
         try:
             existing = self._api(
@@ -656,9 +664,20 @@ def main():
            if cfg["since"] else "no date cutoff, so any still-live listing counts"))
     alerter = Alerter()
     if not alerter.enabled:
-        log("NO PRIVATE ALERT REPO CONFIGURED — running in local/console mode.")
-        log("Alerts are never written to this repo, so nothing about your list "
-            "can leak into a public repo.")
+        # On a runner there is nobody reading stdout. Watching for five hours and
+        # writing matches to a log is not a degraded service, it is a fake one:
+        # it burns minutes and looks healthy while telling you nothing. Six days
+        # and three missed listings went by exactly this way. Refuse instead.
+        if os.environ.get("GITHUB_ACTIONS"):
+            log("REFUSING TO RUN: no ALERT_REPO / ALERT_TOKEN, so a match could")
+            log("not reach you. Nothing would be watching you, and this run would")
+            log("look green while missing listings.")
+            log("")
+            log("Add all three secrets under Settings -> Secrets and variables ->")
+            log("Actions:  ALERT_TOKEN, ALERT_REPO, TARGETS_JSON")
+            return 2
+        log("Local/console mode — no ALERT_REPO / ALERT_TOKEN in the environment.")
+        log("Matches print here instead of being emailed.")
 
     # A wall-clock budget, not a pass count. Pass duration varies with fetch
     # time and 429 backoff, so counting passes overshot the runner's job timeout
